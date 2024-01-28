@@ -178,6 +178,18 @@ pub struct PanOrbitCamera {
     /// camera. Note that the zoom value (radius or scale) will never go below `0.02`.
     /// Defaults to `None`.
     pub zoom_lower_limit: Option<f32>,
+    /// Upper limit on the X position of the camera focus point. Defaults to `None`.
+    pub focus_x_upper_limit: Option<f32>,
+    /// Lower limit on the X position of the camera focus point. Defaults to `None`.
+    pub focus_x_lower_limit: Option<f32>,
+    /// Upper limit on the Y position of the camera focus point. Defaults to `None`.
+    pub focus_y_upper_limit: Option<f32>,
+    /// Lower limit on the Y position of the camera focus point. Defaults to `None`.
+    pub focus_y_lower_limit: Option<f32>,
+    /// Upper limit on the Z position of the camera focus point. Defaults to `None`.
+    pub focus_z_upper_limit: Option<f32>,
+    /// Lower limit on the Z position of the camera focus point. Defaults to `None`.
+    pub focus_z_lower_limit: Option<f32>,
     /// The sensitivity of the orbiting motion. Defaults to `1.0`.
     pub orbit_sensitivity: f32,
     /// How much smoothing is applied to the orbit motion. A value of `0.0` disables smoothing,
@@ -259,6 +271,12 @@ impl Default for PanOrbitCamera {
             beta_lower_limit: None,
             zoom_upper_limit: None,
             zoom_lower_limit: None,
+            focus_x_upper_limit: None,
+            focus_x_lower_limit: None,
+            focus_y_upper_limit: None,
+            focus_y_lower_limit: None,
+            focus_z_upper_limit: None,
+            focus_z_lower_limit: None,
             force_update: false,
         }
     }
@@ -382,6 +400,25 @@ fn pan_orbit_camera(
             let beta_upper_limit = pan_orbit.beta_upper_limit;
             let beta_lower_limit = pan_orbit.beta_lower_limit;
             move |beta: f32| util::apply_limits(beta, beta_upper_limit, beta_lower_limit)
+        };
+
+        let apply_focus_limits = {
+            let focus_x_upper_limit = pan_orbit.focus_x_upper_limit;
+            let focus_x_lower_limit = pan_orbit.focus_x_lower_limit;
+            let focus_y_upper_limit = pan_orbit.focus_y_upper_limit;
+            let focus_y_lower_limit = pan_orbit.focus_y_lower_limit;
+            let focus_z_upper_limit = pan_orbit.focus_z_upper_limit;
+            let focus_z_lower_limit = pan_orbit.focus_z_lower_limit;
+            move |focus: Vec3| {
+                let mut new_focus = focus;
+                new_focus.x =
+                    util::apply_limits(new_focus.x, focus_x_upper_limit, focus_x_lower_limit);
+                new_focus.y =
+                    util::apply_limits(new_focus.y, focus_y_upper_limit, focus_y_lower_limit);
+                new_focus.z =
+                    util::apply_limits(new_focus.z, focus_z_upper_limit, focus_z_lower_limit);
+                new_focus
+            }
         };
 
         if !pan_orbit.initialized {
@@ -510,9 +547,21 @@ fn pan_orbit_camera(
                         pan *= Vec2::new(p.area.width(), p.area.height()) / vp_size;
                     }
                 }
+
+                // Lock the pan directions within the bounded box
+                let right = (apply_focus_limits(
+                    pan_orbit.target_focus + transform.right() * pan.x.signum(),
+                ) - pan_orbit.target_focus)
+                    .normalize_or_zero();
+
+                let up =
+                    (apply_focus_limits(pan_orbit.target_focus + transform.up() * pan.y.signum())
+                        - pan_orbit.target_focus)
+                        .normalize_or_zero();
+
                 // Translate by local axes
-                let right = transform.rotation * Vec3::X * -pan.x;
-                let up = transform.rotation * Vec3::Y * pan.y;
+                let right = right * -pan.x * pan.x.signum();
+                let up = up * pan.y * pan.y.signum();
                 let translation = (right + up) * multiplier;
                 pan_orbit.target_focus += translation;
                 has_moved = true;
@@ -545,6 +594,7 @@ fn pan_orbit_camera(
         pan_orbit.target_beta = apply_beta_limits(pan_orbit.target_beta);
         pan_orbit.target_radius = apply_zoom_limits(pan_orbit.target_radius);
         pan_orbit.target_scale = apply_zoom_limits(pan_orbit.target_scale);
+        pan_orbit.target_focus = apply_focus_limits(pan_orbit.target_focus);
 
         if !pan_orbit.allow_upside_down {
             pan_orbit.target_beta =
