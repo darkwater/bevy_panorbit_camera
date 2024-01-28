@@ -566,7 +566,9 @@ fn pan_orbit_camera(
                 pan_orbit.target_focus += translation;
                 has_moved = true;
             }
-        } else if (scroll_line + scroll_pixel).abs() > 0.0 {
+        }
+
+        if (scroll_line + scroll_pixel).abs() > 0.0 {
             // Choose different reference values based on the current projection
             let pan_orbit = &mut *pan_orbit;
             let (target_value, value) = if let Projection::Orthographic(_) = *projection {
