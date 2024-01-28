@@ -5,14 +5,8 @@ use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::{PrimaryWindow, WindowRef};
-#[cfg(feature = "bevy_egui")]
-use bevy_egui::EguiSet;
-#[cfg(feature = "bevy_egui")]
-pub use egui::EguiWantsFocus;
 use std::f32::consts::{PI, TAU};
 
-#[cfg(feature = "bevy_egui")]
-mod egui;
 mod util;
 
 /// Bevy plugin that contains the systems for controlling `PanOrbitCamera` components.
@@ -42,21 +36,6 @@ impl Plugin for PanOrbitCameraPlugin {
                     .chain()
                     .in_set(PanOrbitCameraSystemSet),
             );
-
-        #[cfg(feature = "bevy_egui")]
-        {
-            app.init_resource::<EguiWantsFocus>()
-                .add_systems(
-                    Update,
-                    egui::check_egui_wants_focus
-                        .after(EguiSet::InitContexts)
-                        .before(PanOrbitCameraSystemSet),
-                )
-                .configure_sets(
-                    Update,
-                    PanOrbitCameraSystemSet.run_if(resource_equals(EguiWantsFocus(false))),
-                );
-        }
     }
 }
 
@@ -379,7 +358,22 @@ fn pan_orbit_camera(
     mut mouse_motion: EventReader<MouseMotion>,
     mut scroll_events: EventReader<MouseWheel>,
     mut orbit_cameras: Query<(Entity, &mut PanOrbitCamera, &mut Transform, &mut Projection)>,
+    #[cfg(feature = "bevy_egui")] mut contexts: bevy_egui::EguiContexts,
+    #[cfg(feature = "bevy_egui")] windows: Query<Entity, With<Window>>,
 ) {
+    #[allow(unused_mut)]
+    let mut pointer_over_egui = false;
+    #[cfg(feature = "bevy_egui")]
+    {
+        for window in windows.iter() {
+            let ctx = contexts.ctx_for_window_mut(window);
+            if ctx.is_pointer_over_area() {
+                pointer_over_egui = true;
+                break;
+            }
+        }
+    }
+
     let mouse_delta = mouse_motion.read().map(|event| event.delta).sum::<Vec2>();
 
     for (entity, mut pan_orbit, mut transform, mut projection) in orbit_cameras.iter_mut() {
@@ -472,7 +466,7 @@ fn pan_orbit_camera(
         // The reason we only skip getting input if the camera is inactive/disabled is because
         // it might still be moving (lerping towards target values) when the user is not
         // actively controlling it.
-        if pan_orbit.enabled && active_cam.entity == Some(entity) {
+        if !pointer_over_egui && pan_orbit.enabled && active_cam.entity == Some(entity) {
             if util::orbit_pressed(&pan_orbit, &mouse_input, &key_input) {
                 rotation_move += mouse_delta * pan_orbit.orbit_sensitivity;
             } else if util::pan_pressed(&pan_orbit, &mouse_input, &key_input) {
