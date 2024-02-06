@@ -1,7 +1,9 @@
 #![warn(missing_docs)]
+#![allow(clippy::too_many_arguments)]
 #![doc = include_str!("../README.md")]
 
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
+use bevy::input::touchpad::{TouchpadMagnify, TouchpadRotate};
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::{PrimaryWindow, WindowRef};
@@ -197,6 +199,8 @@ pub struct PanOrbitCamera {
     pub modifier_orbit: Option<KeyCode>,
     /// Key that must be pressed for `button_pan` to work. Defaults to `None` (no modifier).
     pub modifier_pan: Option<KeyCode>,
+    /// Key that must be pressed for the pan gesture to work on touchpad. Defaults to `None` (no modifier).
+    pub modifier_orbit_touchpad: Option<KeyCode>,
     /// Whether to reverse the zoom direction. Defaults to `false`.
     pub reversed_zoom: bool,
     /// Whether the camera is currently upside down. Updated automatically. Should not be set manually.
@@ -234,6 +238,7 @@ impl Default for PanOrbitCamera {
             button_pan: MouseButton::Right,
             modifier_orbit: None,
             modifier_pan: None,
+            modifier_orbit_touchpad: None,
             reversed_zoom: false,
             enabled: true,
             alpha: None,
@@ -357,6 +362,8 @@ fn pan_orbit_camera(
     key_input: Res<Input<KeyCode>>,
     mut mouse_motion: EventReader<MouseMotion>,
     mut scroll_events: EventReader<MouseWheel>,
+    mut zoom_events: EventReader<TouchpadMagnify>,
+    mut rotate_events: EventReader<TouchpadRotate>,
     mut orbit_cameras: Query<(Entity, &mut PanOrbitCamera, &mut Transform, &mut Projection)>,
     #[cfg(feature = "bevy_egui")] mut contexts: bevy_egui::EguiContexts,
     #[cfg(feature = "bevy_egui")] windows: Query<Entity, With<Window>>,
@@ -475,19 +482,35 @@ fn pan_orbit_camera(
             }
 
             for ev in scroll_events.read() {
-                let direction = match pan_orbit.reversed_zoom {
-                    true => -1.0,
-                    false => 1.0,
-                };
-                let delta_scroll = ev.y * direction * pan_orbit.zoom_sensitivity;
                 match ev.unit {
                     MouseScrollUnit::Line => {
-                        scroll_line += delta_scroll;
+                        let direction = match pan_orbit.reversed_zoom {
+                            true => -1.0,
+                            false => 1.0,
+                        };
+
+                        scroll_line += ev.y * direction * pan_orbit.zoom_sensitivity;
                     }
                     MouseScrollUnit::Pixel => {
-                        scroll_pixel += delta_scroll * 0.005;
+                        let orbit = pan_orbit
+                            .modifier_orbit_touchpad
+                            .is_some_and(|modifier| key_input.pressed(modifier));
+
+                        if orbit {
+                            rotation_move += Vec2::new(ev.x, ev.y) * pan_orbit.orbit_sensitivity;
+                        } else {
+                            pan += Vec2::new(ev.x, ev.y) * pan_orbit.pan_sensitivity;
+                        }
                     }
                 };
+            }
+
+            for ev in zoom_events.read() {
+                scroll_pixel += ev.0 * pan_orbit.zoom_sensitivity * 2.;
+            }
+
+            for ev in rotate_events.read() {
+                rotation_move.x += ev.0 * pan_orbit.orbit_sensitivity * 3.;
             }
 
             if util::orbit_just_pressed(&pan_orbit, &mouse_input, &key_input)
